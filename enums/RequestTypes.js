@@ -1,6 +1,6 @@
-module.exports = [
-  'heartbeat',
-  'getEntry',
-  'addEntry',
-  'hasEntry',
-]
+module.exports = {
+  'heartbeat': 0,
+  'getEntry': 1,
+  'addEntry': 2,
+  'hasEntry': 3,
+};

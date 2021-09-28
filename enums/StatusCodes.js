@@ -1,4 +1,5 @@
-module.exports = [
-  'success',
-  'notFound',
-];
+module.exports = {
+  'success': 0,
+  'notFound': 1,
+  'malformedPacket': 2,
+};
