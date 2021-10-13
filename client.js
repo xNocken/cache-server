@@ -12,9 +12,10 @@ const pendingMessages = {
   [RequestTypes.getEntry]: {},
   [RequestTypes.hasEntry]: {},
   [RequestTypes.addEntry]: {},
+  [RequestTypes.removeEntry]: {},
 };
 
-const getEntry = (key) => {
+const getEntry = (sendCofig) => {
   if (!ws.OPEN) {
     return;
   }
@@ -25,15 +26,35 @@ const getEntry = (key) => {
 
     builder.writeInt32(messageId);
     builder.writeByte(RequestTypes.getEntry);
-    builder.writeString(key);
+    builder.writeConfig(sendCofig);
 
     ws.send(builder.build());
 
-    pendingMessages.getEntry[messageId] = (statusCode, message) => {
-      delete pendingMessages.getEntry[messageId];
+    pendingMessages[RequestTypes.getEntry][messageId] = (statusCode, message) => {
+      delete pendingMessages[RequestTypes.getEntry][messageId];
 
-      if (statusCode === 'success') {
-        resolve(message.readBytes());
+      if (statusCode === StatusCodes.success) {
+        const config = message.readConfig();
+        const data = message.readBytes();
+        let uncompressed;
+        let origData;
+
+        if (config.isCompressed) {
+          uncompressed = gunzipSync(data);
+        } else {
+          uncompressed = data;
+        }
+
+        switch (config.type) {
+          case 'json':
+            origData = JSON.parse(uncompressed.toString());
+            break;
+
+          default:
+            origData = uncompressed;
+        }
+
+        resolve(origData);
       } else {
         reject(statusCode);
       }
@@ -42,8 +63,8 @@ const getEntry = (key) => {
 }
 
 /**
- * 
- * @param {InSettings} inConfig 
+ *
+ * @param {InSettings} inConfig
  * @returns {Promise}
  */
 const addEntry = (inConfig) => {
@@ -65,7 +86,7 @@ const addEntry = (inConfig) => {
 
   let uncompressed;
 
-  switch(inConfig.type) {
+  switch (inConfig.type) {
     case 'json':
       uncompressed = JSON.stringify(inConfig.value);
       break;
@@ -109,15 +130,84 @@ const addEntry = (inConfig) => {
   });
 }
 
+const hasEntry = (config) => {
+  if (!ws.OPEN) {
+    return;
+  }
+
+  return new Promise((resolve, reject) => {
+    const builder = new BinaryBuilder();
+    const messageId = sentMessages++;
+
+    builder.writeInt32(messageId);
+    builder.writeByte(RequestTypes.hasEntry);
+    builder.writeConfig(config);
+
+    ws.send(builder.build());
+
+    pendingMessages[RequestTypes.hasEntry][messageId] = (statusCode, message) => {
+      delete pendingMessages[RequestTypes.hasEntry][messageId];
+
+      if (statusCode === StatusCodes.success) {
+        const hasData = message.readBoolean();
+
+        resolve(hasData);
+      } else {
+        reject(statusCode);
+      }
+    };
+  })
+}
+
+const removeEntry = (config) => {
+  if (!ws.OPEN) {
+    return;
+  }
+
+  return new Promise((resolve, reject) => {
+    const builder = new BinaryBuilder();
+    const messageId = sentMessages++;
+
+    builder.writeInt32(messageId);
+    builder.writeByte(RequestTypes.removeEntry);
+    builder.writeConfig(config);
+
+    ws.send(builder.build());
+
+    pendingMessages[RequestTypes.removeEntry][messageId] = (statusCode) => {
+      delete pendingMessages[RequestTypes.removeEntry][messageId];
+
+      if (statusCode === StatusCodes.success) {
+        resolve();
+      } else {
+        reject(statusCode);
+      }
+    };
+  })
+}
+
 ws.onopen = () => {
-  addEntry({
-    key: 'gude',
-    value: 'was gehtn',
-    group: 'moinsen',
-    expiresIn: 5,
-  }).then(() => {
-    console.log('successfully saved');
-  }).catch(console.log);
+  // addEntry({
+  //   key: 'gude',
+  //   value: { ei: 'gude' },
+  //   group: 'moinsen',
+  //   expiresIn: 500,
+  //   type: 'json',
+  // }).then(() => {
+  //   console.log('successfully saved');
+
+  //   getEntry({
+  //     key: 'gude',
+  //     group: 'moinsen',
+  //   }).then((data) => {
+  //     console.log(data);
+  //   })
+  // }).catch(console.log);
+
+  // removeEntry({
+  //   key: 'gude',
+  //   group: 'moinsen',
+  // }).then(() => console.log('success')).catch(console.log);
 };
 
 ws.onmessage = ({ data }) => {
@@ -133,5 +223,18 @@ ws.onmessage = ({ data }) => {
     return;
   }
 
+  if (!pendingMessages[type][messageId]) {
+    console.error(`received response with type ${type} and message id ${messageId} but no function was found`, pendingMessages)
+
+    return;
+  }
+
   pendingMessages[type][messageId](statusCode, response);
 };
+
+module.exports = {
+  removeEntry,
+  addEntry,
+  hasEntry,
+  getEntry,
+}
